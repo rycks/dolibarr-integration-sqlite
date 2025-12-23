@@ -45,6 +45,11 @@ class DoliDBSqlite3 extends DoliDB
 	private $_results;
 
 	/**
+	 * @var array<int, string> Store query strings indexed by result object ID
+	 */
+	private $queryStrings = [];
+
+	/**
 	 * @var bool Unescape slash quot
 	 */
 	public $unescapeslashquot = false;
@@ -482,7 +487,7 @@ class DoliDBSqlite3 extends DoliDB
 			//$ret = $this->db->exec($query);
 			$ret = $this->db->query($query); // $ret is a Sqlite3Result
 			if ($ret) {
-				$ret->queryString = $query;
+				$this->queryStrings[spl_object_id($ret)] = $query;
 			}
 		} catch (Exception $e) {
 			$this->error = $this->db->lastErrorMsg();
@@ -590,14 +595,13 @@ class DoliDBSqlite3 extends DoliDB
 	public function num_rows($resultset)
 	{
 		// phpcs:enable
-		// FIXME: SQLite3Result does not have a queryString member
-
 		// If resultset not provided, we take the last used by connexion
 		if (!is_object($resultset)) {
 			$resultset = $this->_results;
 		}
-		if (preg_match("/^SELECT/i", $resultset->queryString)) {
-			return $this->db->querySingle("SELECT count(*) FROM (".$resultset->queryString.") q");
+		$queryString = $this->getQueryString($resultset);
+		if (preg_match("/^SELECT/i", $queryString)) {
+			return $this->db->querySingle("SELECT count(*) FROM (".$queryString.") q");
 		}
 		return 0;
 	}
@@ -613,13 +617,12 @@ class DoliDBSqlite3 extends DoliDB
 	public function affected_rows($resultset)
 	{
 		// phpcs:enable
-		// FIXME: SQLite3Result does not have a queryString member
-
 		// If resultset not provided, we take the last used by connexion
 		if (!is_object($resultset)) {
 			$resultset = $this->_results;
 		}
-		if (preg_match("/^SELECT/i", $resultset->queryString)) {
+		$queryString = $this->getQueryString($resultset);
+		if (preg_match("/^SELECT/i", $queryString)) {
 			return $this->num_rows($resultset);
 		}
 		// mysql necessite un link de base pour cette fonction contrairement
@@ -642,8 +645,29 @@ class DoliDBSqlite3 extends DoliDB
 		}
 		// Si resultset en est un, on libere la memoire
 		if ($resultset && is_object($resultset)) {
+			// Clean up stored query string
+			$id = spl_object_id($resultset);
+			unset($this->queryStrings[$id]);
 			$resultset->finalize();
 		}
+	}
+
+	/**
+	 * Get the query string associated with a resultset
+	 *
+	 * @param  SQLite3Result|null  $resultset  Resultset to get query for
+	 * @return string                          The query string or empty string
+	 */
+	private function getQueryString($resultset = null)
+	{
+		if (!is_object($resultset)) {
+			$resultset = $this->_results;
+		}
+		if ($resultset && is_object($resultset)) {
+			$id = spl_object_id($resultset);
+			return $this->queryStrings[$id] ?? '';
+		}
+		return '';
 	}
 
 	/**
