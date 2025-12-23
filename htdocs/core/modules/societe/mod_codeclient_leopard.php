@@ -121,7 +121,7 @@ class mod_codeclient_leopard extends ModeleThirdPartyCode
 		global $conf;
 
 		$result = 0;
-		$code = trim($code);
+		$code = trim((string) $code);
 
 		if (empty($code) && $this->code_null && empty($conf->global->MAIN_COMPANY_CODE_ALWAYS_REQUIRED)) {
 			$result = 0;

@@ -678,7 +678,7 @@ class DoliDBSqlite3 extends DoliDB
 	 */
 	public function escape($stringtoencode)
 	{
-		return Sqlite3::escapeString($stringtoencode);
+		return Sqlite3::escapeString((string) $stringtoencode);
 	}
 
 	/**

@@ -1336,11 +1336,11 @@ class Societe extends CommonObject
 		}
 
 		// Local taxes
-		$this->localtax1_assuj = trim($this->localtax1_assuj);
-		$this->localtax2_assuj = trim($this->localtax2_assuj);
+		$this->localtax1_assuj = trim((string) $this->localtax1_assuj);
+		$this->localtax2_assuj = trim((string) $this->localtax2_assuj);
 
-		$this->localtax1_value = trim($this->localtax1_value);
-		$this->localtax2_value = trim($this->localtax2_value);
+		$this->localtax1_value = trim((string) $this->localtax1_value);
+		$this->localtax2_value = trim((string) $this->localtax2_value);
 
 		if ($this->capital != '') {
 			$this->capital = price2num(trim($this->capital));
@@ -1353,7 +1353,7 @@ class Societe extends CommonObject
 		$this->forme_juridique_code = trim($this->forme_juridique_code);
 
 		//Gencod
-		$this->barcode = trim($this->barcode);
+		$this->barcode = trim((string) $this->barcode);
 
 		// For automatic creation
 		if ($this->code_client == -1 || $this->code_client === 'auto') {
@@ -1363,9 +1363,9 @@ class Societe extends CommonObject
 			$this->get_codefournisseur($this, 1);
 		}
 
-		$this->code_compta_client = trim(empty($this->code_compta) ? $this->code_compta_client : $this->code_compta);
+		$this->code_compta_client = trim((string) (empty($this->code_compta) ? $this->code_compta_client : $this->code_compta));
 		$this->code_compta = $this->code_compta_client; // for backward compatibility
-		$this->code_compta_fournisseur = trim($this->code_compta_fournisseur);
+		$this->code_compta_fournisseur = trim((string) $this->code_compta_fournisseur);
 
 		// Check parameters. More tests are done later in the ->verify()
 		if (!is_numeric($this->client) && !is_numeric($this->fournisseur)) {
@@ -1401,15 +1401,15 @@ class Societe extends CommonObject
 		}
 
 		//Web services
-		$this->webservices_url = $this->webservices_url ?clean_url($this->webservices_url, 0) : '';
-		$this->webservices_key = trim($this->webservices_key);
+		$this->webservices_url = $this->webservices_url ? clean_url($this->webservices_url, 0) : '';
+		$this->webservices_key = trim((string) $this->webservices_key);
 
 		$this->accountancy_code_buy = trim($this->accountancy_code_buy);
 		$this->accountancy_code_sell = trim($this->accountancy_code_sell);
 
 		//Incoterms
 		$this->fk_incoterms = (int) $this->fk_incoterms;
-		$this->location_incoterms = trim($this->location_incoterms);
+		$this->location_incoterms = trim((string) $this->location_incoterms);
 
 		$this->db->begin();
 

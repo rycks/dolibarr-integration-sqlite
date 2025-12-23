@@ -43,6 +43,11 @@ class mod_codecompta_panicum extends ModeleAccountancyCode
 
 	public $position = 10;
 
+	/**
+	 * @var string Accountancy code
+	 */
+	public $code = '';
+
 
 	/**
 	 * 	Constructor
