@@ -23,8 +23,7 @@ See [COPYRIGHT](https://github.com/Dolibarr/dolibarr/blob/develop/COPYRIGHT) fil
 ```
 git clone https://github.com/rycks/dolibarr-integration-sqlite.git
 cd dolibarr-integration-sqlite
-cp htdocs/conf/conf.php_sqlite htdocs/conf/conf.php
-php -S localhost:8080 -d display_errors=1 -d error_reporting=E_ALL -d session.save_path=/tmp -t htdocs/
+./run.sh
 ```
 
 Open your browser to http://localhost:8080/ login admin password adminadmin
