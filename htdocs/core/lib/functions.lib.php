@@ -1519,7 +1519,7 @@ function dol_string_nospecial($str, $newstr = '_', $badcharstoreplace = '', $bad
 		$forbidden_chars_to_remove = $badcharstoremove;
 	}
 
-	return str_replace($forbidden_chars_to_replace, $newstr, str_replace($forbidden_chars_to_remove, "", $str));
+	return str_replace($forbidden_chars_to_replace, $newstr, str_replace($forbidden_chars_to_remove, "", (string) $str));
 }
 
 
