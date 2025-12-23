@@ -27,7 +27,7 @@ chmod +x run.sh
 ./run.sh
 ```
 
-Open your browser to http://localhost:8080/ login admin password adminadmin
+Open your browser to http://localhost:8080/ login `admin` password `adminadmin`
 
 That's all !
 
