@@ -44,6 +44,11 @@ class DoliDBSqlite3 extends DoliDB
 	 */
 	private $_results;
 
+	/**
+	 * @var bool Unescape slash quot
+	 */
+	public $unescapeslashquot = false;
+
 	const WEEK_MONDAY_FIRST = 1;
 	const WEEK_YEAR = 2;
 	const WEEK_FIRST_WEEKDAY = 4;
@@ -194,6 +199,10 @@ class DoliDBSqlite3 extends DoliDB
 				$line = preg_replace('/datetime not null/i', 'datetime', $line);
 				$line = preg_replace('/datetime/i', 'timestamp', $line);
 
+				// Remove ON UPDATE CURRENT_TIMESTAMP (not supported in SQLite)
+				$line = preg_replace('/ON UPDATE CURRENT_TIMESTAMP/i', '', $line);
+				$line = preg_replace('/DEFAULT CURRENT_TIMESTAMP/i', 'DEFAULT CURRENT_TIMESTAMP', $line);
+
 				// double -> numeric
 				$line = preg_replace('/^double/i', 'numeric', $line);
 				$line = preg_replace('/(\s*)double/i', '\\1numeric', $line);
@@ -251,8 +260,7 @@ class DoliDBSqlite3 extends DoliDB
 					$fieldlist = $reg[4];
 					$idxname = $reg[3];
 					$tablename = $reg[1];
-					$line = "-- ".$line." replaced by --\n";
-					$line .= "CREATE ".(preg_match('/UNIQUE/', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
+					$line = "CREATE ".(preg_match('/UNIQUE/', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
 				}
 				if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+CONSTRAINT\s+(.*)\s*FOREIGN\s+KEY\s*\(([\w,\s]+)\)\s*REFERENCES\s+(\w+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
 					// Pour l'instant les contraintes ne sont pas créées
@@ -1390,6 +1398,129 @@ class DoliDBSqlite3 extends DoliDB
 				$this->error = "unable to create custom function '$name'";
 			}
 		}
+	}
+
+	/**
+	 * SQLite custom function: IF(condition, value_if_true, value_if_false)
+	 *
+	 * @param	mixed	$condition		Condition to evaluate
+	 * @param	mixed	$value_true		Value if true
+	 * @param	mixed	$value_false	Value if false
+	 * @return	mixed
+	 */
+	public static function dbIF($condition, $value_true, $value_false)
+	{
+		return $condition ? $value_true : $value_false;
+	}
+
+	/**
+	 * SQLite custom function: MONTH(date)
+	 *
+	 * @param	string	$date	Date string
+	 * @return	int				Month number (1-12)
+	 */
+	public static function dbMONTH($date)
+	{
+		if (empty($date)) {
+			return null;
+		}
+		return (int) date('n', strtotime($date));
+	}
+
+	/**
+	 * SQLite custom function: CURTIME()
+	 *
+	 * @return	string	Current time in HH:MM:SS format
+	 */
+	public static function dbCURTIME()
+	{
+		return date('H:i:s');
+	}
+
+	/**
+	 * SQLite custom function: CURDATE()
+	 *
+	 * @return	string	Current date in YYYY-MM-DD format
+	 */
+	public static function dbCURDATE()
+	{
+		return date('Y-m-d');
+	}
+
+	/**
+	 * SQLite custom function: WEEK(date, mode)
+	 *
+	 * @param	string	$date	Date string
+	 * @param	int		$mode	Week mode (0-7)
+	 * @return	int				Week number
+	 */
+	public static function dbWEEK($date, $mode = 0)
+	{
+		if (empty($date)) {
+			return null;
+		}
+		$timestamp = strtotime($date);
+		$year = (int) date('Y', $timestamp);
+		$month = (int) date('n', $timestamp);
+		$day = (int) date('j', $timestamp);
+		$dummy = 0;
+		return (int) self::calc_week($year, $month, $day, $mode, $dummy);
+	}
+
+	/**
+	 * SQLite custom function: WEEKDAY(date)
+	 * Returns 0 = Monday, 1 = Tuesday, ... 6 = Sunday
+	 *
+	 * @param	string	$date	Date string
+	 * @return	int				Weekday (0-6)
+	 */
+	public static function dbWEEKDAY($date)
+	{
+		if (empty($date)) {
+			return null;
+		}
+		$timestamp = strtotime($date);
+		$dow = (int) date('w', $timestamp); // 0=Sunday, 6=Saturday
+		return ($dow + 6) % 7; // Convert to 0=Monday
+	}
+
+	/**
+	 * SQLite custom function: date_format(date, format)
+	 * Converts MySQL date_format to PHP date format
+	 *
+	 * @param	string	$date	Date string
+	 * @param	string	$format	MySQL date format string
+	 * @return	string			Formatted date
+	 */
+	public static function dbdateformat($date, $format)
+	{
+		if (empty($date)) {
+			return null;
+		}
+		$timestamp = strtotime($date);
+		// Convert MySQL format to PHP format
+		$replacements = array(
+			'%Y' => 'Y',
+			'%y' => 'y',
+			'%m' => 'm',
+			'%c' => 'n',
+			'%d' => 'd',
+			'%e' => 'j',
+			'%H' => 'H',
+			'%h' => 'h',
+			'%i' => 'i',
+			'%s' => 's',
+			'%W' => 'l',
+			'%M' => 'F',
+			'%b' => 'M',
+			'%a' => 'D',
+			'%j' => 'z',
+			'%U' => 'W',
+			'%u' => 'W',
+			'%%' => '%',
+		);
+		$phpformat = str_replace(array_keys($replacements), array_values($replacements), $format);
+		return date($phpformat, $timestamp);
 	}
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
