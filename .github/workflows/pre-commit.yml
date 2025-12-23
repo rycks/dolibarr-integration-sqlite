@@ -15,7 +15,7 @@ jobs:
         if: false
 
       # Checkout git sources to analyze
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # The next uses the git API because there is no clone yet.
       # This is faster for a big repo.
