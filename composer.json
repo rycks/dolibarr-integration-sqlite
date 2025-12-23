@@ -1,0 +1,22 @@
+{
+    "name": "cap-rel/dolibarr-integration-sqlite",
+    "description": "Pre-setup version of Dolibarr with SQLite - designed for continuous integration, not for production",
+    "type": "project",
+    "license": "GPL-3.0-or-later",
+    "require": {
+        "php": ">=8.2"
+    },
+    "autoload": {
+        "classmap": [
+            "htdocs/core/class/"
+        ]
+    },
+    "authors": [
+        {
+            "name": "Eric Seigne",
+            "email": "eric.seigne@cap-rel.fr"
+        }
+    ],
+    "homepage": "https://github.com/rycks/dolibarr-integration-sqlite",
+    "keywords": ["dolibarr", "erp", "sqlite", "testing", "ci"]
+}
