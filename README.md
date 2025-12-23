@@ -23,6 +23,7 @@ See [COPYRIGHT](https://github.com/Dolibarr/dolibarr/blob/develop/COPYRIGHT) fil
 ```
 git clone https://github.com/rycks/dolibarr-integration-sqlite.git
 cd dolibarr-integration-sqlite
+chmod +x run.sh
 ./run.sh
 ```
 
