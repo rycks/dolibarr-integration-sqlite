@@ -57,7 +57,7 @@ class modGeneratePassNone extends ModeleGenPassword
 	public $db;
 
 	public $conf;
-	public $lang;
+	public $langs;
 	public $user;
 
 
