@@ -307,6 +307,15 @@ class DoliDBSqlite3 extends DoliDB
 			//print "type=".$type." newline=".$line."<br>\n";
 		}
 
+		// Convert MySQL "INSERT INTO ... ON DUPLICATE KEY UPDATE ..." to SQLite "INSERT OR REPLACE INTO ..."
+		// Note: INSERT OR REPLACE deletes and reinserts the row, so all columns should be specified
+		if (preg_match('/INSERT\s+INTO\s+(.*?)\s+ON\s+DUPLICATE\s+KEY\s+UPDATE\s+/i', $line)) {
+			$line = preg_replace('/\s+ON\s+DUPLICATE\s+KEY\s+UPDATE\s+.*/i', '', $line);
+			$line = preg_replace('/INSERT\s+INTO\s+/i', 'INSERT OR REPLACE INTO ', $line);
+		}
+
+		// Convert MySQL "INSERT IGNORE INTO ..." to SQLite "INSERT OR IGNORE INTO ..."
+		$line = preg_replace('/INSERT\s+IGNORE\s+INTO\s+/i', 'INSERT OR IGNORE INTO ', $line);
 
 		return $line;
 	}
