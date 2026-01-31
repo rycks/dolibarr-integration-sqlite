@@ -129,7 +129,6 @@ class DoliDBSqlite3 extends DoliDB
 			// CONCAT with variable number of arguments (-1 means any number)
 			$this->db->createFunction('CONCAT', array(__CLASS__, 'dbCONCAT'), -1);
 			//$this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-			$this->db->createFunction('CONCAT', array(__CLASS__, 'dbCONCAT'), -1);
 		} else {
 			// host, login ou password incorrect
 			$this->connected = false;
