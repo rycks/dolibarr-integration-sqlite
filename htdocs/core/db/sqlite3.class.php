@@ -172,6 +172,10 @@ class DoliDBSqlite3 extends DoliDB
 			}
 
 			if ($type == 'dml') {
+				// Remove inline comments (-- ...) before replacing whitespace
+				// This prevents comments from breaking when newlines are converted to spaces
+				$line = preg_replace('/--[^\n]*$/m', '', $line);
+
 				$line = preg_replace('/\s/', ' ', $line); // Replace tabulation with space
 
 				// we are inside create table statement so lets process datatypes
@@ -302,6 +306,7 @@ class DoliDBSqlite3 extends DoliDB
 
 			//print "type=".$type." newline=".$line."<br>\n";
 		}
+
 
 		return $line;
 	}
