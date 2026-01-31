@@ -126,6 +126,8 @@ class DoliDBSqlite3 extends DoliDB
 			$this->addCustomFunction('WEEK', 2);
 			$this->addCustomFunction('WEEKDAY');
 			$this->addCustomFunction('date_format');
+			// CONCAT with variable number of arguments (-1 means any number)
+			$this->db->createFunction('CONCAT', array(__CLASS__, 'dbCONCAT'), -1);
 			//$this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 			$this->db->createFunction('CONCAT', array(__CLASS__, 'dbCONCAT'), -1);
 		} else {
