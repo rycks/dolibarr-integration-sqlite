@@ -127,6 +127,7 @@ class DoliDBSqlite3 extends DoliDB
 			$this->addCustomFunction('WEEKDAY');
 			$this->addCustomFunction('date_format');
 			//$this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+			$this->db->createFunction('CONCAT', array(__CLASS__, 'dbCONCAT'), -1);
 		} else {
 			// host, login ou password incorrect
 			$this->connected = false;
@@ -1545,6 +1546,24 @@ class DoliDBSqlite3 extends DoliDB
 		);
 		$phpformat = str_replace(array_keys($replacements), array_values($replacements), $format);
 		return date($phpformat, $timestamp);
+	}
+
+	/**
+	 * SQLite custom function: CONCAT(str1, str2, ...)
+	 * Concatenates strings (MySQL compatibility)
+	 *
+	 * @param	mixed	...$args	Strings to concatenate
+	 * @return	string				Concatenated string
+	 */
+	public static function dbCONCAT(...$args)
+	{
+		$result = '';
+		foreach ($args as $arg) {
+			if ($arg !== null) {
+				$result .= $arg;
+			}
+		}
+		return $result;
 	}
 
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
