@@ -317,6 +317,15 @@ class DoliDBSqlite3 extends DoliDB
 		// Convert MySQL "INSERT IGNORE INTO ..." to SQLite "INSERT OR IGNORE INTO ..."
 		$line = preg_replace('/INSERT\s+IGNORE\s+INTO\s+/i', 'INSERT OR IGNORE INTO ', $line);
 
+		// Convert MySQL SUBSTRING(x FROM y) to SQLite SUBSTR(x, y)
+		// MySQL: SUBSTRING(ref FROM 5) -> SQLite: SUBSTR(ref, 5)
+		$line = preg_replace('/SUBSTRING\s*\(\s*(\w+)\s+FROM\s+(\d+)\s*\)/i', 'SUBSTR(\\1, \\2)', $line);
+
+		// Convert MySQL CAST(x AS SIGNED) to SQLite CAST(x AS INTEGER)
+		// MySQL uses SIGNED/UNSIGNED, SQLite uses INTEGER
+		$line = preg_replace('/CAST\s*\(\s*(.+?)\s+AS\s+SIGNED\s*\)/i', 'CAST(\\1 AS INTEGER)', $line);
+		$line = preg_replace('/CAST\s*\(\s*(.+?)\s+AS\s+UNSIGNED\s*\)/i', 'CAST(\\1 AS INTEGER)', $line);
+
 		return $line;
 	}
 
