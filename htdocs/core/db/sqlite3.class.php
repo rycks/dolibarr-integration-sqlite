@@ -226,6 +226,16 @@ class DoliDBSqlite3 extends DoliDB
 					$line = preg_replace('/unique index\s*\((\w+\s*,\s*\w+)\)/i', 'UNIQUE\(\\1\)', $line);
 				}
 
+				// alter table add [unique] [index] (field1, field2 ...)
+				// IMPORTANT: Must be done BEFORE removing inline INDEX definitions
+				// ALTER TABLE llx_accountingaccount ADD INDEX idx_accountingaccount_fk_pcg_version (fk_pcg_version)
+				if (preg_match('/ALTER\s+TABLE\s+(\S+)\s+ADD\s+(UNIQUE\s+INDEX|UNIQUE\s+KEY|INDEX|KEY|UNIQUE)\s+(\S+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
+					$fieldlist = $reg[4];
+					$idxname = trim($reg[3]);
+					$tablename = trim($reg[1]);
+					$line = "CREATE ".(preg_match('/UNIQUE/i', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
+				}
+
 				// Remove inline INDEX definitions from CREATE TABLE (not supported in SQLite)
 				// Example: INDEX idx_fk_user (fk_user) or KEY idx_name (field)
 				$line = preg_replace('/,?\s*(?:INDEX|KEY)\s+\w+\s*\([^)]+\)/i', '', $line);
@@ -276,14 +286,6 @@ class DoliDBSqlite3 extends DoliDB
 					$line .= "ALTER TABLE ".$reg[1]." DROP CONSTRAINT ".$reg[2];
 				}
 
-				// alter table add [unique] [index] (field1, field2 ...)
-				// ALTER TABLE llx_accountingaccount ADD INDEX idx_accountingaccount_fk_pcg_version (fk_pcg_version)
-				if (preg_match('/ALTER\s+TABLE\s+(\S+)\s+ADD\s+(UNIQUE\s+INDEX|UNIQUE\s+KEY|INDEX|KEY|UNIQUE)\s+(\S+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
-					$fieldlist = $reg[4];
-					$idxname = trim($reg[3]);
-					$tablename = trim($reg[1]);
-					$line = "CREATE ".(preg_match('/UNIQUE/i', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
-				}
 				if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+CONSTRAINT\s+(.*)\s*FOREIGN\s+KEY\s*\(([\w,\s]+)\)\s*REFERENCES\s+(\w+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
 					// Pour l'instant les contraintes ne sont pas créées
 					dol_syslog(get_class().'::query line emptied');
