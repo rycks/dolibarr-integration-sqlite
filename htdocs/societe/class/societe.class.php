@@ -1349,8 +1349,8 @@ class Societe extends CommonObject
 			$this->capital = ''; // '' = undef
 		}
 
-		$this->effectif_id = trim($this->effectif_id);
-		$this->forme_juridique_code = trim($this->forme_juridique_code);
+		$this->effectif_id = trim($this->effectif_id ?? '');
+		$this->forme_juridique_code = trim($this->forme_juridique_code ?? '');
 
 		//Gencod
 		$this->barcode = trim((string) $this->barcode);
