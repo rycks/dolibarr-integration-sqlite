@@ -180,8 +180,8 @@ class DoliDBSqlite3 extends DoliDB
 
 				// we are inside create table statement so lets process datatypes
 				if (preg_match('/(ISAM|innodb)/i', $line)) { // end of create table sequence
-					$line = preg_replace('/\)[\s\t]*type[\s\t]*=[\s\t]*(MyISAM|innodb);/i', ');', $line);
-					$line = preg_replace('/\)[\s\t]*engine[\s\t]*=[\s\t]*(MyISAM|innodb);/i', ');', $line);
+					$line = preg_replace('/\)[\s\t]*type[\s\t]*=[\s\t]*(MyISAM|innodb)[^;]*;/i', ');', $line);
+					$line = preg_replace('/\)[\s\t]*engine[\s\t]*=[\s\t]*(MyISAM|innodb)[^;]*;/i', ');', $line);
 					$line = preg_replace('/,$/', '', $line);
 				}
 
@@ -226,8 +226,19 @@ class DoliDBSqlite3 extends DoliDB
 					$line = preg_replace('/unique index\s*\((\w+\s*,\s*\w+)\)/i', 'UNIQUE\(\\1\)', $line);
 				}
 
+				// Remove inline INDEX definitions from CREATE TABLE (not supported in SQLite)
+				// Example: INDEX idx_fk_user (fk_user) or KEY idx_name (field)
+				$line = preg_replace('/,?\s*(?:INDEX|KEY)\s+\w+\s*\([^)]+\)/i', '', $line);
+
 				// We remove end of requests "AFTER fieldxxx"
 				$line = preg_replace('/AFTER [a-z0-9_]+/i', '', $line);
+
+				// Remove inline COMMENT 'xxx' (not supported in SQLite)
+				$line = preg_replace('/\s+COMMENT\s+\'[^\']*\'/i', '', $line);
+
+				// Remove DEFAULT CHARSET and COLLATE specifications
+				$line = preg_replace('/\s+DEFAULT\s+CHARSET\s*=\s*[a-z0-9_]+/i', '', $line);
+				$line = preg_replace('/\s+COLLATE\s*=?\s*[a-z0-9_]+/i', '', $line);
 
 				// We remove start of requests "ALTER TABLE tablexxx" if this is a DROP INDEX
 				$line = preg_replace('/ALTER TABLE [a-z0-9_]+ DROP INDEX/i', 'DROP INDEX', $line);
@@ -267,11 +278,11 @@ class DoliDBSqlite3 extends DoliDB
 
 				// alter table add [unique] [index] (field1, field2 ...)
 				// ALTER TABLE llx_accountingaccount ADD INDEX idx_accountingaccount_fk_pcg_version (fk_pcg_version)
-				if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+(UNIQUE INDEX|INDEX|UNIQUE)\s+(.*)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
+				if (preg_match('/ALTER\s+TABLE\s+(\S+)\s+ADD\s+(UNIQUE\s+INDEX|UNIQUE\s+KEY|INDEX|KEY|UNIQUE)\s+(\S+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
 					$fieldlist = $reg[4];
-					$idxname = $reg[3];
-					$tablename = $reg[1];
-					$line = "CREATE ".(preg_match('/UNIQUE/', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
+					$idxname = trim($reg[3]);
+					$tablename = trim($reg[1]);
+					$line = "CREATE ".(preg_match('/UNIQUE/i', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
 				}
 				if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+CONSTRAINT\s+(.*)\s*FOREIGN\s+KEY\s*\(([\w,\s]+)\)\s*REFERENCES\s+(\w+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
 					// Pour l'instant les contraintes ne sont pas créées
