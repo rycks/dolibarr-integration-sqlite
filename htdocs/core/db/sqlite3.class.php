@@ -326,6 +326,16 @@ class DoliDBSqlite3 extends DoliDB
 		$line = preg_replace('/CAST\s*\(\s*(.+?)\s+AS\s+SIGNED\s*\)/i', 'CAST(\\1 AS INTEGER)', $line);
 		$line = preg_replace('/CAST\s*\(\s*(.+?)\s+AS\s+UNSIGNED\s*\)/i', 'CAST(\\1 AS INTEGER)', $line);
 
+		// Convert MySQL FROM_UNIXTIME(timestamp) to SQLite datetime(timestamp, 'unixepoch')
+		// MySQL: FROM_UNIXTIME(1234567890) -> SQLite: datetime(1234567890, 'unixepoch')
+		$line = preg_replace('/FROM_UNIXTIME\s*\(\s*([^)]+)\s*\)/i', "datetime(\\1, 'unixepoch')", $line);
+
+		// Convert MySQL UNIX_TIMESTAMP(datetime) to SQLite strftime('%s', datetime)
+		// MySQL: UNIX_TIMESTAMP(date_col) -> SQLite: strftime('%s', date_col)
+		$line = preg_replace('/UNIX_TIMESTAMP\s*\(\s*([^)]+)\s*\)/i', "strftime('%s', \\1)", $line);
+		// MySQL: UNIX_TIMESTAMP() (without args, returns current timestamp)
+		$line = preg_replace('/UNIX_TIMESTAMP\s*\(\s*\)/i', "strftime('%s', 'now')", $line);
+
 		return $line;
 	}
 
