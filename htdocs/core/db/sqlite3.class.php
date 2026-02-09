@@ -227,8 +227,8 @@ class DoliDBSqlite3 extends DoliDB
 				}
 
 				// alter table add [unique] [index] (field1, field2 ...)
-				// IMPORTANT: Must be done BEFORE removing inline INDEX definitions
-				// ALTER TABLE llx_accountingaccount ADD INDEX idx_accountingaccount_fk_pcg_version (fk_pcg_version)
+				// IMPORTANT: Must be processed BEFORE removing inline INDEX definitions below
+				// ALTER TABLE llx_xxx ADD INDEX idx_xxx (field) -> CREATE INDEX idx_xxx ON llx_xxx (field)
 				if (preg_match('/ALTER\s+TABLE\s+(\S+)\s+ADD\s+(UNIQUE\s+INDEX|UNIQUE\s+KEY|INDEX|KEY|UNIQUE)\s+(\S+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
 					$fieldlist = $reg[4];
 					$idxname = trim($reg[3]);
@@ -348,6 +348,10 @@ class DoliDBSqlite3 extends DoliDB
 		$line = preg_replace('/UNIX_TIMESTAMP\s*\(\s*([^)]+)\s*\)/i', "strftime('%s', \\1)", $line);
 		// MySQL: UNIX_TIMESTAMP() (without args, returns current timestamp)
 		$line = preg_replace('/UNIX_TIMESTAMP\s*\(\s*\)/i', "strftime('%s', 'now')", $line);
+
+		// Convert MySQL NOW() to SQLite datetime('now')
+		// MySQL: NOW() -> SQLite: datetime('now')
+		$line = preg_replace('/\bNOW\s*\(\s*\)/i', "datetime('now')", $line);
 
 		return $line;
 	}
