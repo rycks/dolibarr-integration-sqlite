@@ -214,6 +214,9 @@ class DoliDBSqlite3 extends DoliDB
 				$line = preg_replace('/ON UPDATE CURRENT_TIMESTAMP/i', '', $line);
 				$line = preg_replace('/DEFAULT CURRENT_TIMESTAMP/i', 'DEFAULT CURRENT_TIMESTAMP', $line);
 
+				// Remove inline COMMENT 'xxx' (not supported in SQLite)
+				$line = preg_replace('/\s+COMMENT\s+\'[^\']*\'/i', '', $line);
+
 				// double -> numeric
 				$line = preg_replace('/^double/i', 'numeric', $line);
 				$line = preg_replace('/(\s*)double/i', '\\1numeric', $line);
