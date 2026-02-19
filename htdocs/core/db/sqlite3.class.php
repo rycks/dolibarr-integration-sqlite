@@ -297,6 +297,14 @@ class DoliDBSqlite3 extends DoliDB
 					$line .= "ALTER TABLE ".$reg[1]." DROP CONSTRAINT ".$reg[2];
 				}
 
+				// alter table add [unique] [index] (field1, field2 ...)
+				// ALTER TABLE llx_accountingaccount ADD INDEX idx_accountingaccount_fk_pcg_version (fk_pcg_version)
+				if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+(UNIQUE INDEX|INDEX|UNIQUE)\s+(.*)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
+					$fieldlist = $reg[4];
+					$idxname = $reg[3];
+					$tablename = $reg[1];
+					$line = "CREATE ".(preg_match('/UNIQUE/', $reg[2]) ? 'UNIQUE ' : '')."INDEX ".$idxname." ON ".$tablename." (".$fieldlist.")";
+				}
 				if (preg_match('/ALTER\s+TABLE\s*(.*)\s*ADD\s+CONSTRAINT\s+(.*)\s*FOREIGN\s+KEY\s*\(([\w,\s]+)\)\s*REFERENCES\s+(\w+)\s*\(([\w,\s]+)\)/i', $line, $reg)) {
 					// Pour l'instant les contraintes ne sont pas créées
 					dol_syslog(get_class().'::query line emptied');
