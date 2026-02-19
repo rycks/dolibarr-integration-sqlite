@@ -250,6 +250,14 @@ class DoliDBSqlite3 extends DoliDB
 				$line = preg_replace('/\s+DEFAULT\s+CHARSET\s*=\s*[a-z0-9_]+/i', '', $line);
 				$line = preg_replace('/\s+COLLATE\s*=?\s*[a-z0-9_]+/i', '', $line);
 
+				// Remove ENGINE specification (fallback if not caught by earlier patterns)
+				$line = preg_replace('/\s+ENGINE\s*=\s*\w+/i', '', $line);
+
+				// Remove AUTO_INCREMENT start value for tables
+				$line = preg_replace('/\s+AUTO_INCREMENT\s*=\s*\d+/i', '', $line);
+
+				// Remove ROW_FORMAT specification
+				$line = preg_replace('/\s+ROW_FORMAT\s*=\s*\w+/i', '', $line);
 				// We remove start of requests "ALTER TABLE tablexxx" if this is a DROP INDEX
 				$line = preg_replace('/ALTER TABLE [a-z0-9_]+ DROP INDEX/i', 'DROP INDEX', $line);
 
