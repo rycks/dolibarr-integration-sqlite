@@ -1272,6 +1272,12 @@ function dol_clone($object, $native = 0)
 			unset($object->db);		// Such property can not be serialized with pgsl (when object->db->db = 'PgSql\Connection')
 		}
 
+		// SQLite3 objects cannot be serialized either
+		if (isset($object->db) && isset($object->db->db) && is_object($object->db->db) && get_class($object->db->db) == 'SQLite3') {
+			$tmpsavdb = $object->db;
+			unset($object->db);
+		}
+
 		$myclone = unserialize(serialize($object));	// serialize then unserialize is a hack to be sure to have a new object for all fields
 
 		if (!empty($tmpsavdb)) {
