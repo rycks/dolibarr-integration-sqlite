@@ -36,7 +36,7 @@ jobs:
         private-key: ${{ secrets.PR18_SECRET_KEY }}
 
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Assign Tag
       env:
