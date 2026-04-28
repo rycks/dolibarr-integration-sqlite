@@ -6,11 +6,6 @@
     "require": {
         "php": ">=7.3"
     },
-    "autoload": {
-        "classmap": [
-            "htdocs/core/class/"
-        ]
-    },
     "authors": [
         {
             "name": "Eric Seigne",
