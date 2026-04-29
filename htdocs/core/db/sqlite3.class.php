@@ -241,7 +241,9 @@ class DoliDBSqlite3 extends DoliDB
 
 				// Remove inline INDEX definitions from CREATE TABLE (not supported in SQLite)
 				// Example: INDEX idx_fk_user (fk_user) or KEY idx_name (field)
-				$line = preg_replace('/,?\s*(?:INDEX|KEY)\s+\w+\s*\([^)]+\)/i', '', $line);
+				// Word boundaries are required so column names ending with "_key" or
+				// "_index" (e.g. "import_key VARCHAR(14)") are not corrupted.
+				$line = preg_replace('/(?:^|,)\s*\b(?:INDEX|KEY)\b\s+\w+\s*\([^)]+\)/i', '', $line);
 
 				// We remove end of requests "AFTER fieldxxx"
 				$line = preg_replace('/AFTER [a-z0-9_]+/i', '', $line);
