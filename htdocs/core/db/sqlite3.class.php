@@ -120,6 +120,7 @@ class DoliDBSqlite3 extends DoliDB
 
 			$this->addCustomFunction('IF');
 			$this->addCustomFunction('MONTH');
+			$this->addCustomFunction('YEAR');
 			$this->addCustomFunction('CURTIME');
 			$this->addCustomFunction('CURDATE');
 			$this->addCustomFunction('WEEK', 1);
@@ -1522,6 +1523,20 @@ class DoliDBSqlite3 extends DoliDB
 			return null;
 		}
 		return (int) date('n', strtotime($date));
+	}
+
+	/**
+	 * SQLite custom function: YEAR(date)
+	 *
+	 * @param	string	$date	Date string
+	 * @return	int				Year number (e.g. 2026)
+	 */
+	public static function dbYEAR($date)
+	{
+		if (empty($date)) {
+			return null;
+		}
+		return (int) date('Y', strtotime($date));
 	}
 
 	/**
