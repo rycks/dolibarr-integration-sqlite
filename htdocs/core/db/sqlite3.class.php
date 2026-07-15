@@ -151,6 +151,19 @@ class DoliDBSqlite3 extends DoliDB
 		if (preg_match('/^#/i', $line) || preg_match('/^$/i', $line) || preg_match('/^--/i', $line)) {
 			return $line;
 		}
+
+		// SQLite has no row-level locking clause: an explicit transaction
+		// already locks the whole database for writers, so the MySQL /
+		// PostgreSQL pessimistic-locking tail is a no-op here. Strip it
+		// (FOR UPDATE [NOWAIT | SKIP LOCKED], FOR SHARE, LOCK IN SHARE MODE)
+		// so a "SELECT ... FOR UPDATE" runs instead of raising a
+		// "near \"FOR\": syntax error". A trailing ';' is preserved.
+		$line = preg_replace(
+			'/\s+(?:FOR\s+UPDATE(?:\s+NOWAIT|\s+SKIP\s+LOCKED)?|FOR\s+SHARE|LOCK\s+IN\s+SHARE\s+MODE)\s*(;?)\s*$/i',
+			'\\1',
+			$line
+		);
+
 		if ($line != "") {
 			if ($type == 'auto') {
 				if (preg_match('/ALTER TABLE/i', $line)) {

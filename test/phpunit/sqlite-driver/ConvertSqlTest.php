@@ -145,6 +145,50 @@ class ConvertSqlTest extends TestCase
 		$this->assertDoesNotMatchRegularExpression('/USING\s+llx_t\s*,/i', $out, "Input: $out");
 	}
 
+	/**
+	 * SQLite has no row-level locking clause, so the MySQL / PostgreSQL
+	 * pessimistic-locking tail must be stripped: "SELECT ... FOR UPDATE" has
+	 * to run as a plain SELECT (the surrounding write transaction already
+	 * locks the whole database) instead of raising 'near "FOR": syntax error'.
+	 *
+	 * @dataProvider lockingClauseProvider
+	 *
+	 * @param string $in       Input SQL carrying a locking tail
+	 * @param string $expected Normalised SQL expected once the tail is stripped
+	 * @return void
+	 */
+	public function testLockingClauseStripped($in, $expected)
+	{
+		$this->assertSame($expected, $this->norm($this->convert($in)));
+	}
+
+	/**
+	 * @return array<string, array{0:string,1:string}>
+	 */
+	public static function lockingClauseProvider()
+	{
+		return array(
+			'FOR UPDATE' => array("SELECT * FROM llx_societe WHERE rowid = 5 FOR UPDATE", "SELECT * FROM llx_societe WHERE rowid = 5"),
+			'FOR UPDATE trailing semicolon' => array("SELECT a FROM llx_t WHERE id = 1 FOR UPDATE;", "SELECT a FROM llx_t WHERE id = 1;"),
+			'FOR UPDATE NOWAIT' => array("SELECT a FROM llx_t FOR UPDATE NOWAIT", "SELECT a FROM llx_t"),
+			'FOR UPDATE SKIP LOCKED' => array("SELECT a FROM llx_t FOR UPDATE SKIP LOCKED", "SELECT a FROM llx_t"),
+			'FOR SHARE' => array("SELECT a FROM llx_t FOR SHARE", "SELECT a FROM llx_t"),
+			'LOCK IN SHARE MODE' => array("SELECT a FROM llx_t LOCK IN SHARE MODE", "SELECT a FROM llx_t"),
+		);
+	}
+
+	/**
+	 * A literal 'FOR UPDATE' inside a string value (not a trailing clause)
+	 * must be left untouched.
+	 *
+	 * @return void
+	 */
+	public function testLockingClauseNotStrippedInsideStringLiteral()
+	{
+		$in = "SELECT * FROM llx_t WHERE label = 'flagged FOR UPDATE'";
+		$this->assertSame($in, $this->norm($this->convert($in)));
+	}
+
 	// ----------------------------------------------------------------- DDL
 
 	public function testCreateTableRemovesEngine()
