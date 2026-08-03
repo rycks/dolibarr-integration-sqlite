@@ -550,6 +550,20 @@ class DoliDBSqlite3 extends DoliDB
 			//$this->db = new PDO("sqlite:".$dir.'/database_'.$name.'.sdb');
 			$this->db = new SQLite3($database_name);
 			//$this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+			// SQLite concurrency hardening (test harness: `php -S` runs with several
+			// workers, so authenticated requests hit the DB with concurrent WRITES).
+			// Without this a concurrent writer gets an immediate "database is locked"
+			// and the caller fails -- e.g. AuthController::check()'s date_lastused
+			// UPDATE, which under the boot request burst surfaces as transient 401s /
+			// install redirects and kills otherwise-valid sessions. busyTimeout makes
+			// writers WAIT for the lock instead of erroring; WAL lets readers proceed
+			// while a writer holds the lock. No-op in production (MySQL/MariaDB).
+			if (is_object($this->db)) {
+				$this->db->busyTimeout(5000);
+				@$this->db->exec('PRAGMA busy_timeout=5000');
+				@$this->db->exec('PRAGMA journal_mode=WAL');
+				@$this->db->exec('PRAGMA synchronous=NORMAL');
+			}
 		} catch (Exception $e) {
 			$this->error = self::LABEL.' '.$e->getMessage().' current dir='.$database_name;
 			return '';
@@ -637,6 +651,24 @@ class DoliDBSqlite3 extends DoliDB
 
 			$descTable = $this->db->querySingle("SELECT sql FROM sqlite_master WHERE name='".$this->escape($tablename)."'");
 
+			// SQLite attaches indexes to the table itself, so the rename/recreate/
+			// drop dance below destroys every index of the table: they follow the
+			// renamed table, then die with the temporary one. Losing a UNIQUE index
+			// silently turns a guarded schema into an unguarded one, so capture the
+			// index DDL now and replay it once the temporary table is gone (replaying
+			// earlier would clash with the index names still held by the renamed
+			// table). Implicit indexes (UNIQUE declared inline in the CREATE TABLE)
+			// carry a NULL sql and are recreated by the CREATE TABLE below.
+			$indexesToRestore = array();
+			$resindexes = $this->db->query("SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='".$this->escape($tablename)."' AND sql IS NOT NULL");
+			if ($resindexes) {
+				while ($rowindex = $resindexes->fetchArray(SQLITE3_ASSOC)) {
+					$indexesToRestore[] = $rowindex['sql'];
+				}
+			} else {
+				dol_syslog(get_class($this)."::query cannot list indexes of ".$tablename." before adding constraint ".$constraintname.", they may be lost: ".$this->db->lastErrorMsg(), LOG_ERR);
+			}
+
 			// 1- Renommer la table avec un nom temporaire
 			$this->query("ALTER TABLE ".$tablename." RENAME TO tmp_".$tablename);
 
@@ -657,6 +689,13 @@ class DoliDBSqlite3 extends DoliDB
 
 			// 4- Supprimer la table temporaire
 			$this->query("DROP TABLE tmp_".$tablename);
+
+			// 5- Recreer les index perdus avec la table temporaire
+			foreach ($indexesToRestore as $indexsql) {
+				if (!$this->db->exec($indexsql)) {
+					dol_syslog(get_class($this)."::query failed to restore index on ".$tablename." after adding constraint ".$constraintname.": ".$this->db->lastErrorMsg()." sql=".$indexsql, LOG_ERR);
+				}
+			}
 
 			// dummy statement
 			$query = "SELECT 0";
