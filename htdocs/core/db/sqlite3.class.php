@@ -203,7 +203,11 @@ class DoliDBSqlite3 extends DoliDB
 				$line = str_replace('tinyint', 'smallint', $line);
 
 				// nuke unsigned
-				$line = preg_replace('/(int\w+|smallint)\s+unsigned/i', '\\1', $line);
+				// The whole int family must be covered, with or without a display
+				// width: "int\w+" alone matches "integer unsigned" but neither
+				// "bigint unsigned" (llx_website pageviews) nor "int(11) unsigned",
+				// which would then keep a MySQL-only keyword in the SQLite DDL.
+				$line = preg_replace('/\b((?:tiny|small|medium|big)?int(?:eger)?(?:\s*\(\s*\d+\s*\))?)\s+unsigned\b/i', '\\1', $line);
 
 				// blob -> text
 				$line = preg_replace('/\w*blob/i', 'text', $line);
@@ -294,18 +298,13 @@ class DoliDBSqlite3 extends DoliDB
 					$line .= "ALTER TABLE ".$reg[1]." RENAME COLUMN ".$reg[2]." TO ".$reg[3];
 				}
 
-				// Translate order to modify field format
-				if (preg_match('/ALTER TABLE ([a-z0-9_]+) MODIFY(?: COLUMN)? ([a-z0-9_]+) (.*)$/i', $line, $reg)) {
-					$line = "-- ".$line." replaced by --\n";
-					$newreg3 = $reg[3];
-					$newreg3 = preg_replace('/ DEFAULT NULL/i', '', $newreg3);
-					$newreg3 = preg_replace('/ NOT NULL/i', '', $newreg3);
-					$newreg3 = preg_replace('/ NULL/i', '', $newreg3);
-					$newreg3 = preg_replace('/ DEFAULT 0/i', '', $newreg3);
-					$newreg3 = preg_replace('/ DEFAULT \'[0-9a-zA-Z_@]*\'/i', '', $newreg3);
-					$line .= "ALTER TABLE ".$reg[1]." ALTER COLUMN ".$reg[2]." TYPE ".$newreg3;
-					// TODO Add alter to set default value or null/not null if there is this in $reg[3]
-				}
+				// "ALTER TABLE ... MODIFY [COLUMN] ..." is deliberately left untouched here.
+				// SQLite knows no ALTER COLUMN at all (the "ALTER COLUMN x TYPE y" this
+				// used to emit is PostgreSQL syntax and always failed with "near ALTER:
+				// syntax error"), and no textual rewriting can do the job: changing the
+				// declared type of a column means rebuilding the table, which requires
+				// reading its current DDL. query() therefore intercepts those orders
+				// before this converter and delegates to modifyColumnByTableRebuild().
 
 				// alter table add primary key (field1, field2 ...) -> We create a unique index instead as dynamic creation of primary key is not supported
 				// ALTER TABLE llx_dolibarr_modules ADD PRIMARY KEY pk_dolibarr_modules (numero, entity);
@@ -699,6 +698,27 @@ class DoliDBSqlite3 extends DoliDB
 
 			// dummy statement
 			$query = "SELECT 0";
+		} elseif (preg_match('/^ALTER\s+TABLE\s+([\w`"\[\]]+)\s+MODIFY\s+(?:COLUMN\s+)?([\w`"\[\]]+)\s+(.+)$/is', $query, $reg)) {
+			// Change the format of a column
+			// SQLite has no ALTER COLUMN: the table must be rebuilt to carry the new
+			// column definition. Intercepted here, before convertSQLFromMysql(), because
+			// the rebuild needs the current DDL of the table and not just the query text.
+			// Example: ALTER TABLE llx_societe_rib MODIFY label varchar(200)
+			$tablename = trim($reg[1], " `\"[]");
+			$fieldname = trim($reg[2], " `\"[]");
+			$newdefinition = trim(rtrim(trim($reg[3]), ';'));
+
+			if (!$this->modifyColumnByTableRebuild($tablename, $fieldname, $newdefinition)) {
+				// $this->error was set (and logged) by modifyColumnByTableRebuild()
+				$this->lastquery = $query;
+				$this->lastqueryerror = $query;
+				$this->lasterror = $this->error;
+				$this->lasterrno = $this->errno();
+				return false;
+			}
+
+			// dummy statement
+			$query = "SELECT 0";
 		} else {
 			$query = $this->convertSQLFromMysql($query, $type);
 		}
@@ -759,6 +779,203 @@ class DoliDBSqlite3 extends DoliDB
 		return $ret;
 	}
 
+	/**
+	 *	Emulate a MySQL "ALTER TABLE ... MODIFY [COLUMN] ..." by rebuilding the table.
+	 *
+	 *	SQLite can only add, rename or drop a column: changing the declared type,
+	 *	the NOT NULL flag or the DEFAULT of an existing column requires rebuilding
+	 *	the whole table. The recipe recommended by SQLite is followed here (create
+	 *	the new table, copy the rows, drop the old one, rename the new one), which
+	 *	renames the throwaway table instead of the real one so that the REFERENCES
+	 *	clauses of the other tables keep pointing to a valid name all along.
+	 *	Everything runs inside a savepoint (nestable, unlike BEGIN, so an ongoing
+	 *	Dolibarr transaction is preserved) and the explicit indexes and triggers are
+	 *	replayed at the end because DROP TABLE takes them away with the old table.
+	 *
+	 *	@param	string	$tablename		Name of table holding the column
+	 *	@param	string	$fieldname		Name of column to modify
+	 *	@param	string	$newdefinition	MySQL definition of the column without its name (ex: "varchar(255) NOT NULL DEFAULT 'x'")
+	 *	@return	bool					True if the table was rebuilt, false on error (then $this->error is set)
+	 */
+	private function modifyColumnByTableRebuild($tablename, $fieldname, $newdefinition)
+	{
+		$descTable = $this->db->querySingle("SELECT sql FROM sqlite_master WHERE type='table' AND name='".$this->escape($tablename)."'");
+		if (empty($descTable)) {
+			$this->error = 'Cannot modify column '.$fieldname.': table '.$tablename.' not found';
+			dol_syslog(get_class($this)."::modifyColumnByTableRebuild ".$this->error, LOG_ERR);
+			return false;
+		}
+
+		$startlist = strpos($descTable, '(');
+		$endlist = strrpos($descTable, ')');
+		if ($startlist === false || $endlist === false || $endlist <= $startlist) {
+			$this->error = 'Cannot parse the DDL of table '.$tablename.' to modify column '.$fieldname;
+			dol_syslog(get_class($this)."::modifyColumnByTableRebuild ".$this->error." ddl=".$descTable, LOG_ERR);
+			return false;
+		}
+
+		$definitions = self::splitOnTopLevelCommas(substr($descTable, $startlist + 1, $endlist - $startlist - 1));
+
+		$found = -1;
+		foreach ($definitions as $i => $definition) {
+			// A table constraint (PRIMARY KEY, CONSTRAINT, UNIQUE...) never starts
+			// with the column name, so matching the first token is enough here.
+			if (preg_match('/^\s*[`"\[]?'.preg_quote($fieldname, '/').'[`"\]]?(\s|$)/i', $definition)) {
+				$found = $i;
+				break;
+			}
+		}
+		if ($found < 0) {
+			$this->error = 'Cannot modify column '.$fieldname.': no such column in table '.$tablename;
+			dol_syslog(get_class($this)."::modifyColumnByTableRebuild ".$this->error." ddl=".$descTable, LOG_ERR);
+			return false;
+		}
+
+		$definitions[$found] = ' '.self::buildModifiedColumnDefinition($fieldname, $newdefinition, $definitions[$found]);
+
+		// Capture what the DROP TABLE below would take away. Implicit indexes (a
+		// UNIQUE declared inline in the CREATE TABLE) carry a NULL sql and come
+		// back with the new table, so only the explicit DDL is replayed.
+		$objectsToRestore = array();
+		$resobjects = $this->db->query("SELECT sql FROM sqlite_master WHERE type IN ('index','trigger') AND tbl_name='".$this->escape($tablename)."' AND sql IS NOT NULL");
+		if ($resobjects) {
+			while ($rowobject = $resobjects->fetchArray(SQLITE3_ASSOC)) {
+				$objectsToRestore[] = $rowobject['sql'];
+			}
+		} else {
+			dol_syslog(get_class($this)."::modifyColumnByTableRebuild cannot list indexes and triggers of ".$tablename." before modifying column ".$fieldname.", they may be lost: ".$this->db->lastErrorMsg(), LOG_ERR);
+		}
+
+		$tmptable = 'tmp_modify_'.$tablename;
+		$steps = array(
+			'CREATE TABLE '.$tmptable.' ('.implode(',', $definitions).')',
+			'INSERT INTO '.$tmptable.' SELECT * FROM '.$tablename,
+			'DROP TABLE '.$tablename,
+			'ALTER TABLE '.$tmptable.' RENAME TO '.$tablename
+		);
+
+		$this->db->exec('SAVEPOINT dolimodifycolumn');
+
+		foreach ($steps as $step) {
+			// Errors are reported through $this->error and dol_syslog below, the
+			// native warning of SQLite3::exec() would only duplicate them.
+			if (!@$this->db->exec($step)) {
+				$this->error = 'Cannot modify column '.$fieldname.' of '.$tablename.': '.$this->db->lastErrorMsg();
+				dol_syslog(get_class($this)."::modifyColumnByTableRebuild ".$this->error." sql=".$step, LOG_ERR);
+				$this->db->exec('ROLLBACK TO dolimodifycolumn');
+				$this->db->exec('RELEASE dolimodifycolumn');
+				return false;
+			}
+		}
+
+		foreach ($objectsToRestore as $objectsql) {
+			if (!@$this->db->exec($objectsql)) {
+				dol_syslog(get_class($this)."::modifyColumnByTableRebuild failed to restore an index or a trigger of ".$tablename." after modifying column ".$fieldname.": ".$this->db->lastErrorMsg()." sql=".$objectsql, LOG_ERR);
+			}
+		}
+
+		$this->db->exec('RELEASE dolimodifycolumn');
+
+		return true;
+	}
+
+	/**
+	 *	Build the SQLite definition of a column modified by an "ALTER TABLE ... MODIFY".
+	 *
+	 *	@param	string	$fieldname			Name of the column
+	 *	@param	string	$newdefinition		MySQL definition of the column without its name
+	 *	@param	string	$currentdefinition	Definition of the column as currently stored in the DDL of the table
+	 *	@return	string						Definition to put back into the CREATE TABLE, name included
+	 */
+	private static function buildModifiedColumnDefinition($fieldname, $newdefinition, $currentdefinition)
+	{
+		// Reuse the CREATE TABLE translation rules rather than duplicating them:
+		// the definition is wrapped into a throwaway CREATE TABLE, converted, then
+		// unwrapped. This is what turns "tinyint" into "smallint", "datetime" into
+		// "timestamp", drops "unsigned", "AFTER col", "COMMENT '...'" and so on.
+		$wrapped = self::convertSQLFromMysql('CREATE TABLE tmpcolumndefinition ('.$fieldname.' '.$newdefinition.')', 'dml');
+		$reg = array();
+		if (preg_match('/CREATE TABLE tmpcolumndefinition\s*\((.*)\)[\s;]*$/is', $wrapped, $reg)) {
+			$column = trim($reg[1]);
+		} else {
+			$column = trim($fieldname.' '.$newdefinition);
+			dol_syslog('DoliDBSqlite3::buildModifiedColumnDefinition cannot convert the new definition of column '.$fieldname.', using it as is: '.$newdefinition, LOG_WARNING);
+		}
+
+		// A MySQL MODIFY only replaces the type, the NULL flag and the DEFAULT: the
+		// primary key and the uniqueness are table constraints and survive it. SQLite
+		// usually holds them inline in the column definition, so they have to be
+		// carried over explicitly or the rebuild would silently drop them.
+		if (preg_match('/\bPRIMARY\s+KEY\b/i', $currentdefinition) && !preg_match('/\bPRIMARY\s+KEY\b/i', $column)) {
+			$column .= ' PRIMARY KEY';
+
+			if (preg_match('/\bAUTOINCREMENT\b/i', $currentdefinition)) {
+				// SQLite only auto-increments a column declared exactly "integer", so
+				// a "MODIFY rowid bigint" has to land on "integer" to keep the counter.
+				$count = 0;
+				$normalized = preg_replace('/^(\s*\S+\s+)(?:big|small|tiny|medium)?int(?:eger)?(?:\s*\(\s*\d+\s*\))?/i', '\\1integer', $column, 1, $count);
+				if ($count > 0) {
+					$column = $normalized.' AUTOINCREMENT';
+				} else {
+					dol_syslog('DoliDBSqlite3::buildModifiedColumnDefinition drops AUTOINCREMENT of column '.$fieldname.' because its new type is not an integer one: '.$newdefinition, LOG_WARNING);
+				}
+			}
+		}
+		if (preg_match('/\bUNIQUE\b/i', $currentdefinition) && !preg_match('/\bUNIQUE\b/i', $column)) {
+			$column .= ' UNIQUE';
+		}
+
+		return $column;
+	}
+
+	/**
+	 *	Split the body of a CREATE TABLE into its column and constraint definitions.
+	 *
+	 *	A plain explode(',') would cut "decimal(24,8)", a CHECK expression or a
+	 *	string literal in half, so only the commas found outside any parenthesis
+	 *	and outside any quoted part separate two definitions.
+	 *
+	 *	@param	string		$body	Content between the outer parenthesis of a CREATE TABLE
+	 *	@return	string[]			Definitions, in their original order
+	 */
+	private static function splitOnTopLevelCommas($body)
+	{
+		$definitions = array();
+		$current = '';
+		$depth = 0;
+		$quote = '';
+		$length = strlen($body);
+
+		for ($i = 0; $i < $length; $i++) {
+			$char = $body[$i];
+
+			if ($quote !== '') {
+				$current .= $char;
+				if ($char === $quote) {
+					$quote = '';
+				}
+				continue;
+			}
+			if ($char === "'" || $char === '"' || $char === '`') {
+				$quote = $char;
+				$current .= $char;
+				continue;
+			}
+			if ($char === '(') {
+				$depth++;
+			} elseif ($char === ')') {
+				$depth--;
+			} elseif ($char === ',' && $depth === 0) {
+				$definitions[] = $current;
+				$current = '';
+				continue;
+			}
+			$current .= $char;
+		}
+		$definitions[] = $current;
+
+		return $definitions;
+	}
 	// phpcs:disable PEAR.NamingConventions.ValidFunctionName.ScopeNotCamelCaps
 	/**
 	 * 	Returns the current line (as an object) for the resultset cursor
@@ -1405,8 +1622,30 @@ class DoliDBSqlite3 extends DoliDB
 		// phpcs:enable
 		$sql = "ALTER TABLE ".$table;
 		$sql .= " MODIFY COLUMN ".$field_name." ".$field_desc['type'];
-		if ($field_desc['type'] == 'tinyint' || $field_desc['type'] == 'int' || $field_desc['type'] == 'varchar') {
+		if (in_array($field_desc['type'], array('double', 'tinyint', 'int', 'varchar')) && !empty($field_desc['value'])) {
 			$sql .= "(".$field_desc['value'].")";
+		}
+		// The NOT NULL and DEFAULT clauses are rebuilt exactly like the mysqli driver
+		// does: a MODIFY that omits them drops them, so leaving them out here would
+		// silently unguard a column that MySQL keeps guarded.
+		if (isset($field_desc['null']) && preg_match('/^not null$/i', $field_desc['null'])) {
+			// To be sure the modification works, we first fill the rows still NULL
+			if ($field_desc['type'] == 'varchar' || $field_desc['type'] == 'text') {
+				$sqlbis = "UPDATE ".$table." SET ".$field_name." = '".$this->escape(isset($field_desc['default']) ? $field_desc['default'] : '')."' WHERE ".$field_name." IS NULL";
+				$this->query($sqlbis);
+			} elseif ($field_desc['type'] == 'tinyint' || $field_desc['type'] == 'int') {
+				$sqlbis = "UPDATE ".$table." SET ".$field_name." = ".((int) (isset($field_desc['default']) ? $field_desc['default'] : 0))." WHERE ".$field_name." IS NULL";
+				$this->query($sqlbis);
+			}
+
+			$sql .= " NOT NULL";
+		}
+		if (isset($field_desc['default']) && $field_desc['default'] != '') {
+			if ($field_desc['type'] == 'double' || $field_desc['type'] == 'tinyint' || $field_desc['type'] == 'int') {
+				$sql .= " DEFAULT ".$this->escape($field_desc['default']);
+			} elseif ($field_desc['type'] != 'text') {
+				$sql .= " DEFAULT '".$this->escape($field_desc['default'])."'"; // Default not supported on text fields
+			}
 		}
 
 		dol_syslog(get_class($this)."::DDLUpdateField ".$sql, LOG_DEBUG);

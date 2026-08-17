@@ -1278,7 +1278,18 @@ function dol_clone($object, $native = 0)
 			unset($object->db);
 		}
 
-		$myclone = unserialize(serialize($object));	// serialize then unserialize is a hack to be sure to have a new object for all fields
+		// SQLite test harness: a non-serializable handle (SQLite3) can be nested
+		// DEEPER than $object->db -- e.g. a linked/child object (oldcopy, a linked
+		// product, a category) carrying its own ->db. Stripping only $object->db is
+		// then not enough and serialize() throws, which aborts the whole demo-data
+		// seeding (init.php). Fall back to the scalar/array-only isolation clone
+		// (native = 2, Dolibarr's own recommended method) rather than crash. No-op on
+		// MySQL/MariaDB (serialize never throws there).
+		try {
+			$myclone = unserialize(serialize($object));	// serialize then unserialize is a hack to be sure to have a new object for all fields
+		} catch (\Throwable $e) {
+			$myclone = dol_clone($object, 2);
+		}
 
 		if (!empty($tmpsavdb)) {
 			$object->db = $tmpsavdb;
