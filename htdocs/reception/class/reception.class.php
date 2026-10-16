@@ -120,6 +120,16 @@ class Reception extends CommonObject
 	 */
 	public $date_valid;
 
+	/**
+	 * @var int ID of user author
+	 */
+	public $fk_user_author;
+
+	/**
+	 * @var int ID of user who validated
+	 */
+	public $fk_user_valid;
+
 	public $meths;
 	public $listmeths; // List of carriers
 
@@ -368,6 +378,7 @@ class Reception extends CommonObject
 		}
 
 		$sql = "SELECT e.rowid, e.entity, e.ref, e.fk_soc as socid, e.date_creation, e.ref_supplier, e.ref_ext, e.fk_user_author, e.fk_statut";
+		$sql .= ", e.date_valid, e.fk_user_valid";
 		$sql .= ", e.weight, e.weight_units, e.size, e.size_units, e.width, e.height";
 		$sql .= ", e.date_reception as date_reception, e.model_pdf,  e.date_delivery";
 		$sql .= ", e.fk_shipping_method, e.tracking_number";
@@ -403,6 +414,9 @@ class Reception extends CommonObject
 				$this->ref_ext = $obj->ref_ext;
 				$this->statut               = $obj->fk_statut;
 				$this->user_author_id       = $obj->fk_user_author;
+				$this->fk_user_author       = $obj->fk_user_author;
+				$this->fk_user_valid        = $obj->fk_user_valid;
+				$this->date_valid           = $this->db->jdate($obj->date_valid);
 				$this->date_creation        = $this->db->jdate($obj->date_creation);
 				$this->date = $this->db->jdate($obj->date_reception); // TODO deprecated
 				$this->date_reception = $this->db->jdate($obj->date_reception); // Date real
@@ -1547,18 +1561,33 @@ class Reception extends CommonObject
 
 		$error = 0;
 
-		// Protection
+		// Protection. This avoid to move stock later when we should not
 		if ($this->statut == Reception::STATUS_CLOSED) {
-			dol_syslog(get_class($this)."::Already in closed status", LOG_WARNING);
+			dol_syslog(get_class($this)."::setClosed already in closed status", LOG_WARNING);
 			return 0;
+		}
+		// Only a validated reception can be closed (a draft reception must not move stock)
+		if ($this->statut != Reception::STATUS_VALIDATED) {
+			$langs->load("receptions");
+			$this->error = $langs->trans('StatusOfRefMustBe', $this->ref, $langs->transnoentitiesnoconv('StatusReceptionValidatedShort'));
+			dol_syslog(get_class($this)."::setClosed reception is not validated", LOG_WARNING);
+			return -1;
 		}
 
 		$this->db->begin();
 
-		$sql = 'UPDATE '.MAIN_DB_PREFIX.'reception SET fk_statut='.self::STATUS_CLOSED;
-		$sql .= " WHERE rowid = ".((int) $this->id).' AND fk_statut > 0';
+		$sql = 'UPDATE '.MAIN_DB_PREFIX.'reception SET fk_statut = '.self::STATUS_CLOSED;
+		$sql .= " WHERE rowid = ".((int) $this->id).' AND fk_statut = '.self::STATUS_VALIDATED;
 
 		$resql = $this->db->query($sql);
+		if ($resql && $this->db->affected_rows($resql) <= 0) {
+			// Status in database is not validated (already closed or back to draft): no stock movement
+			$this->db->rollback();
+			$langs->load("receptions");
+			$this->error = $langs->trans('StatusOfRefMustBe', $this->ref, $langs->transnoentitiesnoconv('StatusReceptionValidatedShort'));
+			dol_syslog(get_class($this)."::setClosed reception is not validated in database", LOG_WARNING);
+			return -1;
+		}
 		if ($resql) {
 			// Set order billed if 100% of order is received (qty in reception lines match qty in order lines)
 			if ($this->origin == 'order_supplier' && $this->origin_id > 0) {
