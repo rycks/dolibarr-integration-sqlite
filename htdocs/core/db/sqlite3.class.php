@@ -1360,6 +1360,17 @@ class DoliDBSqlite3 extends DoliDB
 					return 'DB_ERROR_SYNTAX';
 				}
 			}
+			// ADD COLUMN of an existing column: SQLITE_ERROR, read from the
+			// connection since $this->error is only set when an exception is raised.
+			// MySQL gives 1060, which ExtraFields::create() tolerates on purpose.
+			if ($errno == 1 && preg_match('/duplicate column name/i', $this->db->lastErrorMsg())) {
+				return 'DB_ERROR_COLUMN_ALREADY_EXISTS';
+			}
+			// Duplicate of a unique key: SQLITE_CONSTRAINT, MySQL gives 1062. The
+			// other constraints sharing the code (NOT NULL, CHECK) keep it.
+			if ($errno == 19 && preg_match('/UNIQUE constraint failed/i', $this->db->lastErrorMsg())) {
+				return 'DB_ERROR_RECORD_ALREADY_EXISTS';
+			}
 			if ($errno == '23000') {
 				if (preg_match('/column.* not unique/i', $this->error)) {
 					return 'DB_ERROR_RECORD_ALREADY_EXISTS';
