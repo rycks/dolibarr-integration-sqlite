@@ -462,7 +462,165 @@ class DoliDBSqlite3 extends DoliDB
 		// MySQL: NOW() -> SQLite: datetime('now')
 		$line = preg_replace('/\bNOW\s*\(\s*\)/i', "datetime('now')", $line);
 
+		$line = self::qualifyOrderByOutputColumns($line);
+
 		return $line;
+	}
+
+	/**
+	 * MySQL resolves a bare name of the ORDER BY clause against the select list
+	 * first: "SELECT a.id, ... FROM a, c ORDER BY id" sorts on a.id even when c
+	 * also has an id column (core show_actions_done() relies on it). SQLite only
+	 * does so for an explicit alias, and reports the name as ambiguous otherwise.
+	 * Such a name is qualified here with the select list column it names.
+	 *
+	 * Only the top-level ORDER BY of a SELECT is rewritten, and a name only when
+	 * a single unaliased "table.column" of the select list carries it.
+	 *
+	 * @param string $line SQL request
+	 * @return string      SQL request, ORDER BY names qualified when needed
+	 */
+	private static function qualifyOrderByOutputColumns($line)
+	{
+		if (!preg_match('/^\s*SELECT\b/i', $line) || !preg_match('/\bORDER\s+BY\b/i', $line)) {
+			return $line;
+		}
+		$from = self::topLevelKeywordPositions($line, 'FROM');
+		$orderBy = self::topLevelKeywordPositions($line, 'ORDER\s+BY');
+		if (empty($from) || empty($orderBy)) {
+			return $line;
+		}
+		$orderStart = end($orderBy);
+		$fromStart = $from[0][0];
+		if ($orderStart[0] < $fromStart) {
+			return $line;
+		}
+
+		// Columns of the select list, by the name MySQL gives them
+		$selectList = substr($line, 0, $fromStart);
+		$selectList = preg_replace('/^\s*SELECT\s+(DISTINCT\s+)?/i', '', $selectList);
+		$aliases = array();
+		$qualified = array();
+		foreach (self::splitTopLevel($selectList) as $item) {
+			$item = trim($item);
+			if (preg_match('/^(\w+)\.(\w+)$/', $item, $reg)) {
+				$qualified[strtolower($reg[2])][] = $item;
+			} elseif (preg_match('/^(\w+)$/', $item, $reg)) {
+				$qualified[strtolower($reg[1])][] = $item;
+			} elseif (preg_match('/\s(?:AS\s+)?[`"]?(\w+)[`"]?$/i', $item, $reg)) {
+				$aliases[strtolower($reg[1])] = true;
+			}
+		}
+
+		// ORDER BY clause, up to a top-level LIMIT / OFFSET or the end
+		$clauseStart = $orderStart[1];
+		$clauseEnd = strlen($line);
+		foreach (array('LIMIT', 'OFFSET') as $keyword) {
+			foreach (self::topLevelKeywordPositions($line, $keyword) as $position) {
+				if ($position[0] > $clauseStart && $position[0] < $clauseEnd) {
+					$clauseEnd = $position[0];
+				}
+			}
+		}
+		$terms = self::splitTopLevel(substr($line, $clauseStart, $clauseEnd - $clauseStart));
+		$changed = false;
+		foreach ($terms as $key => $term) {
+			if (!preg_match('/^(\s*)(\w+)(\s+(?:ASC|DESC))?(\s*)$/i', $term, $reg)) {
+				continue;
+			}
+			$name = strtolower($reg[2]);
+			if (isset($aliases[$name]) || !isset($qualified[$name]) || count($qualified[$name]) !== 1 || strpos($qualified[$name][0], '.') === false) {
+				continue;
+			}
+			$terms[$key] = $reg[1].$qualified[$name][0].(isset($reg[3]) ? $reg[3] : '').(isset($reg[4]) ? $reg[4] : '');
+			$changed = true;
+		}
+		if (!$changed) {
+			return $line;
+		}
+
+		return substr($line, 0, $clauseStart).implode(',', $terms).substr($line, $clauseEnd);
+	}
+
+	/**
+	 * Positions of a keyword outside parentheses and quoted strings.
+	 *
+	 * @param string $line    SQL request
+	 * @param string $keyword Regex of the keyword, e.g. 'ORDER\s+BY'
+	 * @return array<int,array{0:int,1:int}> Start of each match and end of it
+	 */
+	private static function topLevelKeywordPositions($line, $keyword)
+	{
+		$positions = array();
+		$depth = 0;
+		$quote = '';
+		$length = strlen($line);
+		for ($i = 0; $i < $length; $i++) {
+			$char = $line[$i];
+			if ($quote !== '') {
+				if ($char === '\\') {
+					$i++;
+				} elseif ($char === $quote) {
+					$quote = '';
+				}
+				continue;
+			}
+			if ($char === "'" || $char === '"' || $char === '`') {
+				$quote = $char;
+			} elseif ($char === '(') {
+				$depth++;
+			} elseif ($char === ')') {
+				$depth--;
+			} elseif ($depth === 0 && ($i === 0 || !preg_match('/\w/', $line[$i - 1]))
+				&& preg_match('/\G'.$keyword.'\b/iA', $line, $reg, 0, $i)) {
+				$positions[] = array($i, $i + strlen($reg[0]));
+				$i += strlen($reg[0]) - 1;
+			}
+		}
+
+		return $positions;
+	}
+
+	/**
+	 * Split a list on the commas outside parentheses and quoted strings.
+	 *
+	 * @param string $list Comma separated SQL list
+	 * @return string[]    Items, untrimmed
+	 */
+	private static function splitTopLevel($list)
+	{
+		$items = array();
+		$depth = 0;
+		$quote = '';
+		$current = '';
+		$length = strlen($list);
+		for ($i = 0; $i < $length; $i++) {
+			$char = $list[$i];
+			if ($quote !== '') {
+				$current .= $char;
+				if ($char === '\\' && $i + 1 < $length) {
+					$current .= $list[++$i];
+				} elseif ($char === $quote) {
+					$quote = '';
+				}
+				continue;
+			}
+			if ($char === "'" || $char === '"' || $char === '`') {
+				$quote = $char;
+			} elseif ($char === '(') {
+				$depth++;
+			} elseif ($char === ')') {
+				$depth--;
+			} elseif ($char === ',' && $depth === 0) {
+				$items[] = $current;
+				$current = '';
+				continue;
+			}
+			$current .= $char;
+		}
+		$items[] = $current;
+
+		return $items;
 	}
 
 	/**
